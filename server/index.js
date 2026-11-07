@@ -157,13 +157,14 @@ app.use((err, req, res, _next) => {
 export function startServer(port = CONFIG.port, host = CONFIG.host) {
   return new Promise((resolve) => {
     const server = app.listen(port, host, () => {
-      console.log(`[RANZZ DRAMA] Server aktif di http://localhost:${port}`);
+      console.log(`[RANZZ DRAMA] Server aktif di http://${host}:${port}`);
       resolve(server);
     });
   });
 }
 
-if (process.argv[1] && path.resolve(process.argv[1]) === path.resolve( CONFIG.rootDir, 'server/index.js')) {
+const isSelfTest = process.argv.some((arg) => String(arg).includes('selftest.js'));
+if (!isSelfTest) {
   startServer();
 }
 
