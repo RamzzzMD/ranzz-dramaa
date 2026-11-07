@@ -1,0 +1,20 @@
+{
+  "name": "ranzz-drama",
+  "version": "1.0.0",
+  "description": "RANZZ DRAMA - Platform streaming drama pendek China modern (Node.js + Express + HLS Proxy)",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js",
+    "test:api": "node server/selftest.js"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {
+    "compression": "^1.7.5",
+    "express": "^4.21.2"
+  }
+}
+

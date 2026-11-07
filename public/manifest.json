@@ -1,0 +1,21 @@
+{
+  "name": "RANZZ DRAMA - Streaming Drama China",
+  "short_name": "RANZZ DRAMA",
+  "description": "Platform streaming drama pendek China dengan subtitle Bahasa Indonesia kualitas HD.",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#0a0a0b",
+  "theme_color": "#0a0a0b",
+  "lang": "id-ID",
+  "icons": [
+    {
+      "src": "/icons/icon.svg",
+      "sizes": "192x192 512x512",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
+
