@@ -13,6 +13,9 @@ globalThis.fetch = async function patchedFetch(input, init = {}) {
 
   if (isDramaWave) {
     const headers = new Headers(init.headers || {});
+    if (urlStr.includes('/anonymous/login')) {
+      headers.set('device', 'h5');
+    }
     if (!headers.has('user-agent')) {
       headers.set('User-Agent', 'okhttp/4.12.0');
     }
