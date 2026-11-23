@@ -1,0 +1,14 @@
+{
+  "appId": "com.ranzz.drama",
+  "appName": "RANZZ DRAMA",
+  "webDir": "public",
+  "bundledWebRuntime": false,
+  "server": {
+    "url": "http://YOUR_VPS_IP_OR_DOMAIN:3000",
+    "cleartext": true
+  },
+  "android": {
+    "allowMixedContent": true,
+    "backgroundColor": "#0a0a0b"
+  }
+}

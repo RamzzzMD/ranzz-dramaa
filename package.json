@@ -7,7 +7,10 @@
   "scripts": {
     "start": "node server/index.js",
     "dev": "node --watch server/index.js",
-    "test:api": "node server/selftest.js"
+    "test:api": "node server/selftest.js",
+    "apk:setup": "npm install -D @capacitor/cli @capacitor/core @capacitor/android && npx cap add android",
+    "apk:sync": "npx cap sync android",
+    "apk:open": "npx cap open android"
   },
   "engines": {
     "node": ">=18.0.0"
@@ -17,4 +20,3 @@
     "express": "^4.21.2"
   }
 }
-

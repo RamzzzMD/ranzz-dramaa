@@ -1212,11 +1212,11 @@ async function renderWatchView(seriesId, episodeParam) {
       <div class="container watch-layout">
         <div class="watch-header-bar">
           <div class="watch-title-group">
-            <a href="/drama/${encodeURIComponent(seriesId)}" class="btn-surface" data-link style="padding:0 12px; min-height:40px; flex-shrink:0;">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+            <a href="/drama/${encodeURIComponent(seriesId)}" class="btn-surface" data-link style="padding:0 10px; min-height:38px; flex-shrink:0; font-size:0.8rem;">
+              <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
               <span>Detail</span>
             </a>
-            <div style="min-width:0;">
+            <div style="min-width:0; flex:1;">
               <h1 class="watch-main-title">
                 ${escapeHtml(detailRes.title)}
                 <span style="color:var(--accent-text); margin-left:4px;">Ep ${curEpNum}</span>
@@ -1224,12 +1224,10 @@ async function renderWatchView(seriesId, episodeParam) {
             </div>
           </div>
 
-          <div style="display:flex; align-items:center; gap:8px;">
-            <button type="button" class="btn-surface mobile-only-btn" id="open-mobile-ep-sheet-btn" style="min-height:40px; padding:0 12px;">
-              <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg>
-              <span>Episode (${curEpNum}/${episodes.length})</span>
-            </button>
-          </div>
+          <button type="button" class="btn-surface mobile-only-btn" id="open-mobile-ep-sheet-btn" style="min-height:38px; padding:0 10px; font-size:0.78rem; flex-shrink:0;">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg>
+            <span>Ep ${curEpNum}/${episodes.length}</span>
+          </button>
         </div>
 
         <div class="watch-grid">
@@ -1246,7 +1244,7 @@ async function renderWatchView(seriesId, episodeParam) {
               ></video>
 
               <div class="player-top-bar">
-                <span style="font-size:0.84rem; font-weight:700;">Episode ${curEpNum} dari ${episodes.length}</span>
+                <span style="font-size:0.82rem; font-weight:700;">Episode ${curEpNum} dari ${episodes.length}</span>
                 <span class="ep-badge ${streamData.isPaid ? 'locked' : 'free'}">${streamData.badge}</span>
               </div>
 
@@ -1256,7 +1254,7 @@ async function renderWatchView(seriesId, episodeParam) {
               <div class="seek-feedback right" id="seek-feedback-right">+10 dtk</div>
 
               <button type="button" class="player-center-btn" id="player-center-toggle" aria-label="Putar atau Jeda Video">
-                <svg viewBox="0 0 24 24" width="28" height="28" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
+                <svg viewBox="0 0 24 24" width="26" height="26" fill="currentColor"><polygon points="6,4 20,12 6,20"/></svg>
               </button>
 
               <div class="subtitle-overlay sub-size-md sub-pos-bottom" id="subtitle-overlay">
@@ -1293,7 +1291,7 @@ async function renderWatchView(seriesId, episodeParam) {
                     ${
                       nextEp
                         ? `
-                      <button type="button" class="ctrl-btn" id="ctrl-next-ep" aria-label="Episode Berikutnya (N)" title="Episode Berikutnya (N)">
+                      <button type="button" class="ctrl-btn desktop-only-ctrl" id="ctrl-next-ep" aria-label="Episode Berikutnya (N)" title="Episode Berikutnya (N)">
                         <svg viewBox="0 0 24 24" fill="currentColor"><polygon points="5,4 15,12 5,20"/><line x1="19" y1="5" x2="19" y2="19" stroke="currentColor" stroke-width="2"/></svg>
                         <span class="ctrl-btn-label">Ep ${nextEp.episode}</span>
                       </button>
@@ -1327,7 +1325,7 @@ async function renderWatchView(seriesId, episodeParam) {
                       <span class="ctrl-btn-label">HD</span>
                     </button>
 
-                    <button type="button" class="ctrl-btn" id="ctrl-pip" aria-label="Picture in Picture" title="Picture in Picture">
+                    <button type="button" class="ctrl-btn desktop-only-ctrl" id="ctrl-pip" aria-label="Picture in Picture" title="Picture in Picture">
                       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><rect x="11" y="11" width="9" height="7" rx="1"/></svg>
                     </button>
 
@@ -1340,43 +1338,43 @@ async function renderWatchView(seriesId, episodeParam) {
             </div>
 
             <div class="watch-action-bar">
-              <div class="watch-action-group">
+              <div class="watch-nav-row">
                 <button
                   type="button"
-                  class="btn-surface"
+                  class="btn-surface watch-action-btn"
                   id="watch-prev-ep-btn"
                   ${prevEp ? '' : 'disabled style="opacity:0.45; cursor:not-allowed;"'}
                 >
                   <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
-                  <span>Ep Sebelumnya</span>
+                  <span>${prevEp ? `Ep ${prevEp.episode}` : 'Ep Awal'}</span>
                 </button>
 
-                ${
-                  nextEp
-                    ? `
-                  <button type="button" class="btn-primary" id="watch-next-ep-btn">
-                    <span>Ep ${nextEp.episode} Berikutnya</span>
-                    <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
-                  </button>
-                `
-                    : ''
-                }
-
-                <button type="button" class="btn-surface mobile-only-btn" id="watch-bottom-ep-sheet-btn">
-                  <span>Pilih Episode (${curEpNum}/${episodes.length})</span>
+                <button
+                  type="button"
+                  class="btn-primary watch-action-btn"
+                  id="watch-next-ep-btn"
+                  ${nextEp ? '' : 'disabled style="opacity:0.45; cursor:not-allowed;"'}
+                >
+                  <span>${nextEp ? `Lanjut Ep ${nextEp.episode}` : 'Ep Akhir'}</span>
+                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><polyline points="9 18 15 12 9 6"/></svg>
                 </button>
               </div>
 
-              <div class="watch-action-group">
-                <button type="button" class="btn-surface" id="watch-save-btn">
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="${saved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
-                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                  </svg>
-                  <span>${saved ? 'Tersimpan' : '+ Daftar Saya'}</span>
+              <div class="watch-util-row">
+                <button type="button" class="btn-surface watch-action-btn mobile-only-btn" id="watch-bottom-ep-sheet-btn">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="17" y2="12"/><line x1="7" y1="16" x2="13" y2="16"/></svg>
+                  <span>Semua Ep</span>
                 </button>
 
-                <button type="button" class="btn-surface" id="watch-share-btn">
-                  <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2">
+                <button type="button" class="btn-surface watch-action-btn" id="watch-save-btn">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="${saved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2">
+                    <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                  </svg>
+                  <span>${saved ? 'Tersimpan' : '+ Daftar'}</span>
+                </button>
+
+                <button type="button" class="btn-surface watch-action-btn" id="watch-share-btn">
+                  <svg viewBox="0 0 24 24" width="15" height="15" fill="none" stroke="currentColor" stroke-width="2">
                     <circle cx="18" cy="5" r="3"></circle>
                     <circle cx="6" cy="12" r="3"></circle>
                     <circle cx="18" cy="19" r="3"></circle>
@@ -1390,8 +1388,8 @@ async function renderWatchView(seriesId, episodeParam) {
 
             <div class="watch-info-card">
               <div style="display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px;">
-                <h2 style="font-size:1.05rem; font-weight:800;">${escapeHtml(detailRes.title)}</h2>
-                <span style="font-size:0.8rem; color:var(--text-secondary);">
+                <h2 style="font-size:1rem; font-weight:800;">${escapeHtml(detailRes.title)}</h2>
+                <span style="font-size:0.78rem; color:var(--text-secondary);">
                   Episode ${curEpNum} dari ${episodes.length} &bull; Gratis s/d Ep ${detailRes.payIndex || 12}
                 </span>
               </div>
@@ -1402,24 +1400,20 @@ async function renderWatchView(seriesId, episodeParam) {
                   )
                   .join('')}
               </div>
-              <p style="font-size:0.88rem; color:var(--text-secondary); line-height:1.6;">
+              <p style="font-size:0.86rem; color:var(--text-secondary); line-height:1.58;">
                 ${escapeHtml(detailRes.synopsis || 'Nikmati cerita lengkap drama ini di RANZZ DRAMA.')}
               </p>
-              <div style="margin-top:12px; padding-top:10px; border-top:1px solid var(--border-subtle); display:flex; align-items:center; justify-content:space-between; flex-wrap:wrap; gap:8px; color:var(--text-muted); font-size:0.78rem;">
-                <span>Pintasan Keyboard: <code>Spasi</code> Putar/Jeda, <code>&larr;/&rarr;</code> 10 dtk, <code>&uarr;/&darr;</code> Volume, <code>F</code> Layar Penuh, <code>M</code> Bisu, <code>N</code> Ep Berikutnya</span>
-                <span>HP: Ketuk ganda kiri/kanan untuk lompat 10 dtk</span>
-              </div>
             </div>
           </div>
 
           <aside class="episode-sidebar" aria-label="Daftar Episode Samping">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-              <h2 style="font-size:1.02rem; font-weight:800;">Pilih Episode</h2>
-              <span style="font-size:0.78rem; color:var(--text-secondary);">Gratis s/d Ep ${detailRes.payIndex || 12}</span>
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+              <h2 style="font-size:1rem; font-weight:800;">Pilih Episode</h2>
+              <span style="font-size:0.76rem; color:var(--text-secondary);">Gratis s/d Ep ${detailRes.payIndex || 12}</span>
             </div>
             <div id="sidebar-range-tabs">${renderRangeChipsHtml()}</div>
             <div class="episode-sidebar-scroll" id="sidebar-ep-scroll">
-              <div class="Episode-grid" id="sidebar-ep-grid" style="grid-template-columns:repeat(3, 1fr);">
+              <div class="Episode-grid" id="sidebar-ep-grid">
                 ${buildEpSliceHtml(activeRangeKey)}
               </div>
             </div>
@@ -1429,13 +1423,13 @@ async function renderWatchView(seriesId, episodeParam) {
 
       <div class="mobile-ep-sheet-backdrop" id="mobile-ep-backdrop"></div>
       <div class="mobile-ep-sheet" id="mobile-ep-sheet" role="dialog" aria-modal="true" aria-label="Pilih Episode">
-        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-          <h2 style="font-size:1.05rem; font-weight:800;">Daftar Episode (${episodes.length})</h2>
-          <button type="button" class="btn-surface" id="close-mobile-ep-sheet-btn" style="min-height:38px; padding:0 12px;">Tutup</button>
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+          <h2 style="font-size:1rem; font-weight:800;">Daftar Episode (${episodes.length})</h2>
+          <button type="button" class="btn-surface" id="close-mobile-ep-sheet-btn" style="min-height:36px; padding:0 12px; font-size:0.8rem;">Tutup</button>
         </div>
         <div id="sheet-range-tabs">${renderRangeChipsHtml()}</div>
         <div style="overflow-y:auto; flex:1;" id="sheet-ep-scroll">
-          <div class="Episode-grid" id="sheet-ep-grid" style="grid-template-columns:repeat(3, 1fr);">
+          <div class="Episode-grid" id="sheet-ep-grid">
             ${buildEpSliceHtml(activeRangeKey)}
           </div>
         </div>
@@ -1958,9 +1952,35 @@ function initGlobalListeners() {
     handleRoute();
   });
 
+  // PWA / Android "Add to Home Screen" 1-tap Install button
+  let deferredInstallPrompt = null;
+  const installBtn = document.getElementById('install-app-btn');
+
+  window.addEventListener('beforeinstallprompt', (e) => {
+    e.preventDefault();
+    deferredInstallPrompt = e;
+    if (installBtn) installBtn.hidden = false;
+  });
+
+  installBtn?.addEventListener('click', async () => {
+    if (!deferredInstallPrompt) return;
+    deferredInstallPrompt.prompt();
+    const { outcome } = await deferredInstallPrompt.userChoice;
+    if (outcome === 'accepted') {
+      installBtn.hidden = true;
+      showToast('Aplikasi RANZZ DRAMA sedang dipasang.');
+    }
+    deferredInstallPrompt = null;
+  });
+
+  window.addEventListener('appinstalled', () => {
+    if (installBtn) installBtn.hidden = true;
+    deferredInstallPrompt = null;
+  });
+
   if ('serviceWorker' in navigator) {
     window.addEventListener('load', () => {
-      navigator.serviceWorker.register('/sw.js').catch(() => {});
+      navigator.serviceWorker.register('/sw.js').then((reg) => reg.update()).catch(() => {});
     });
   }
 }
