@@ -4,7 +4,7 @@
   "webDir": "public",
   "bundledWebRuntime": false,
   "server": {
-    "url": "http://YOUR_VPS_IP_OR_DOMAIN:3000",
+    "url": "http://178.83.180.197:9121",
     "cleartext": true
   },
   "android": {

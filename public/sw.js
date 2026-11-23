@@ -1,8 +1,8 @@
-const CACHE_NAME = 'ranzz-drama-shell-v3';
+const CACHE_NAME = 'ranzz-drama-shell-v4';
 const STATIC_ASSETS = [
   '/',
-  '/css/styles.css?v=3',
-  '/js/app.js?v=3',
+  '/css/styles.css?v=4',
+  '/js/app.js?v=4',
   '/js/storage.js',
   '/js/player.js?v=2',
   '/icons/icon.svg',
@@ -28,7 +28,6 @@ self.addEventListener('fetch', (event) => {
   if (request.method !== 'GET') return;
 
   const url = new URL(request.url);
-  // Never cache live HLS streams or API calls in the service worker.
   if (url.pathname.startsWith('/api/')) return;
 
   if (request.mode === 'navigate') {
@@ -38,7 +37,6 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // Network-first with offline cache fallback so CSS/JS updates apply immediately
   event.respondWith(
     fetch(request)
       .then((response) => {

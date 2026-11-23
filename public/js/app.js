@@ -353,11 +353,14 @@ async function renderHomeView() {
       .filter(([, list]) => list.length >= 3)
       .slice(0, 4);
 
+    const quickGenres = Array.from(tagMap.keys()).slice(0, 8);
+
     mainEl.innerHTML = `
       <section class="hero-section" id="hero-slider" aria-label="Sorotan Drama Pilihan">
         ${heroItems
           .map((item, idx) => {
             const bgImg = item.landscapeProxy || item.posterProxy || '/icons/og-banner.svg';
+            const posterImg = item.posterProxy || bgImg;
             const saved = isInWatchlist(item.id);
             const tags = (item.tags || []).slice(0, 3);
             return `
@@ -368,24 +371,35 @@ async function renderHomeView() {
                   <div class="hero-scrim"></div>
                 </div>
                 <div class="container hero-content-wrap">
-                  <div class="hero-inner">
-                    <div class="hero-meta-row">
-                      ${tags.map((t) => `<span class="hero-meta-tag">${escapeHtml(t)}</span>`).join('')}
-                      ${item.episodeCount ? `<span>${item.episodeCount} Episode</span>` : ''}
-                      ${item.followers ? `<span>${formatNumber(item.followers)} Pengikut</span>` : ''}
+                  <div class="hero-grid">
+                    <div class="hero-inner">
+                      <div class="hero-spotlight-badge">
+                        <span class="hero-spotlight-dot"></span>
+                        <span>Sorotan Utama #${idx + 1} &bull; Sub Indo</span>
+                      </div>
+                      <div class="hero-meta-row">
+                        ${tags.map((t) => `<span class="hero-meta-tag">${escapeHtml(t)}</span>`).join('')}
+                        ${item.episodeCount ? `<span class="hero-meta-stat">${item.episodeCount} Episode</span>` : ''}
+                        ${item.followers ? `<span class="hero-meta-stat">${formatNumber(item.followers)} Pengikut</span>` : ''}
+                      </div>
+                      <h1 class="hero-title">${escapeHtml(item.title)}</h1>
+                      <p class="hero-synopsis">${escapeHtml(item.synopsis || 'Ikuti kisah penuh kejutan dalam drama pendek pilihan dengan subtitle Bahasa Indonesia.')}</p>
+                      <div class="hero-cta-row">
+                        <a href="/watch/${encodeURIComponent(item.id)}/1" class="btn-primary" data-link>
+                          <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20"/></svg>
+                          <span>Tonton Sekarang</span>
+                        </a>
+                        <button type="button" class="btn-secondary hero-watchlist-btn" data-watchlist-id="${escapeHtml(item.id)}">
+                          <span>${saved ? 'Tersimpan di Daftar' : '+ Daftar Saya'}</span>
+                        </button>
+                        <a href="/drama/${encodeURIComponent(item.id)}" class="btn-secondary" data-link>Detail Drama</a>
+                      </div>
                     </div>
-                    <h1 class="hero-title">${escapeHtml(item.title)}</h1>
-                    <p class="hero-synopsis">${escapeHtml(item.synopsis || 'Ikuti kisah penuh kejutan dalam drama pendek pilihan dengan subtitle Bahasa Indonesia.')}</p>
-                    <div class="hero-cta-row">
-                      <a href="/watch/${encodeURIComponent(item.id)}/1" class="btn-primary" data-link>
-                        <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20"/></svg>
-                        <span>Tonton Sekarang</span>
-                      </a>
-                      <button type="button" class="btn-secondary hero-watchlist-btn" data-watchlist-id="${escapeHtml(item.id)}">
-                        <span>${saved ? 'Tersimpan di Daftar' : '+ Daftar Saya'}</span>
-                      </button>
-                      <a href="/drama/${encodeURIComponent(item.id)}" class="btn-secondary" data-link>Detail</a>
-                    </div>
+
+                    <a href="/drama/${encodeURIComponent(item.id)}" class="hero-poster-card" data-link aria-label="Lihat detail ${escapeHtml(item.title)}">
+                      <img src="${escapeHtml(posterImg)}" alt="${escapeHtml(item.title)}" loading="lazy">
+                      <div class="hero-poster-pill">Tonton Gratis Ep 1 &bull; HD</div>
+                    </a>
                   </div>
                 </div>
               </article>
@@ -416,6 +430,20 @@ async function renderHomeView() {
       </section>
 
       <div class="container">
+        <div class="home-quick-dock" aria-label="Navigasi Genre Cepat">
+          <div class="home-quick-inner">
+            <span class="quick-dock-label">Jelajah Cepat</span>
+            <a href="/kategori?sort=popular" class="chip-btn active" data-link>Terpopuler</a>
+            <a href="/terbaru" class="chip-btn" data-link>Rilis Baru</a>
+            <a href="/kategori?sort=free" class="chip-btn" data-link>Gratis Ditonton</a>
+            ${quickGenres
+              .map(
+                (g) => `<a href="/kategori?genre=${encodeURIComponent(g)}" class="chip-btn" data-link>${escapeHtml(g)}</a>`
+              )
+              .join('')}
+          </div>
+        </div>
+
         ${
           historyItems.length
             ? renderHorizontalRow({
@@ -736,16 +764,24 @@ async function renderCategoriesView({ isTerbaru = false } = {}) {
     const renderPageShell = () => {
       mainEl.innerHTML = `
         <div class="container page-top-spacer">
-          <div class="section-header">
+          <div class="glass-page-banner">
             <div>
               <h1 class="section-title">${isTerbaru ? 'Rilis Drama Terbaru' : 'Jelajahi Kategori & Genre'}</h1>
-              <p class="section-subtitle">Pilih genre dan urutan sesuai selera menonton Anda</p>
+              <p class="section-subtitle" style="margin-top:4px;">Pilih tema cerita dan urutan sesuai selera menonton Anda</p>
+            </div>
+            <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+              <span class="ep-count-badge" style="padding:6px 12px; font-size:0.78rem;">Genre: ${escapeHtml(selectedGenre)}</span>
+              ${
+                selectedGenre !== 'Semua'
+                  ? `<button type="button" class="btn-surface" id="top-reset-cat-btn" style="min-height:36px; padding:0 12px; font-size:0.78rem;">Reset Filter</button>`
+                  : ''
+              }
             </div>
           </div>
 
           <div class="filter-panel" role="region" aria-label="Filter Kategori Drama">
             <div class="filter-row">
-              <span class="filter-label">Genre:</span>
+              <span class="filter-label">Genre</span>
               ${genreChips
                 .map(
                   (g) => `
@@ -759,7 +795,7 @@ async function renderCategoriesView({ isTerbaru = false } = {}) {
                 .join('')}
             </div>
             <div class="filter-row">
-              <span class="filter-label">Urutkan:</span>
+              <span class="filter-label">Urutkan</span>
               ${sortOptions
                 .map(
                   (s) => `
@@ -783,6 +819,12 @@ async function renderCategoriesView({ isTerbaru = false } = {}) {
           </div>
         </div>
       `;
+
+      mainEl.querySelector('#top-reset-cat-btn')?.addEventListener('click', () => {
+        selectedGenre = 'Semua';
+        selectedSort = 'popular';
+        renderPageShell();
+      });
 
       mainEl.querySelectorAll('[data-genre-chip]').forEach((btn) => {
         btn.addEventListener('click', () => {
@@ -885,75 +927,88 @@ async function renderDramaDetailView(seriesId) {
     mainEl.innerHTML = `
       <section class="detail-hero">
         <img src="${escapeHtml(backdrop)}" alt="" class="detail-backdrop" aria-hidden="true">
-        <div class="container detail-grid">
-          <div class="detail-poster-wrap">
-            <img src="${escapeHtml(poster)}" alt="${escapeHtml(detail.title)}" class="poster-img">
-          </div>
+        <div class="container">
+          <div class="detail-glass-card">
+            <div class="detail-grid">
+              <div class="detail-poster-wrap">
+                <img src="${escapeHtml(poster)}" alt="${escapeHtml(detail.title)}" class="poster-img">
+              </div>
 
-          <div>
-            <h1 class="detail-title">${escapeHtml(detail.title)}</h1>
+              <div style="min-width:0;">
+                <h1 class="detail-title">${escapeHtml(detail.title)}</h1>
 
-            <div class="detail-stats">
-              <span class="detail-stat-item">${detail.totalEpisodes || episodes.length} Episode</span>
-              ${detail.followers ? `<span class="detail-stat-item">${formatNumber(detail.followers)} Pengikut</span>` : ''}
-              <span class="detail-stat-item">Gratis Ep 1 - ${detail.payIndex || 12}</span>
-            </div>
+                <div class="detail-stat-grid">
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Total Episode</span>
+                    <span class="detail-stat-val">${detail.totalEpisodes || episodes.length} Ep</span>
+                  </div>
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Pengikut</span>
+                    <span class="detail-stat-val">${detail.followers ? formatNumber(detail.followers) : 'Populer'}</span>
+                  </div>
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Akses Gratis</span>
+                    <span class="detail-stat-val" style="color:var(--badge-free-text);">Ep 1 - ${detail.payIndex || 12}</span>
+                  </div>
+                </div>
 
-            <div class="detail-tags">
-              ${(detail.tags || [])
-                .map(
-                  (t) => `
-                <a href="/kategori?genre=${encodeURIComponent(t)}" class="tag-pill" data-link>${escapeHtml(t)}</a>
-              `
-                )
-                .join('')}
-            </div>
+                <div class="detail-tags">
+                  ${(detail.tags || [])
+                    .map(
+                      (t) => `
+                    <a href="/kategori?genre=${encodeURIComponent(t)}" class="tag-pill" data-link>${escapeHtml(t)}</a>
+                  `
+                    )
+                    .join('')}
+                </div>
 
-            <div class="detail-synopsis-box">
-              <p class="detail-synopsis collapsed" id="detail-synopsis-text">
-                ${escapeHtml(detail.synopsis || 'Belum ada ringkasan cerita untuk drama ini.')}
-              </p>
-              ${
-                (detail.synopsis || '').length > 140
-                  ? `<button type="button" class="synopsis-toggle-btn" id="toggle-synopsis-btn">Baca Selengkapnya</button>`
-                  : ''
-              }
-            </div>
+                <div class="detail-synopsis-box">
+                  <p class="detail-synopsis collapsed" id="detail-synopsis-text">
+                    ${escapeHtml(detail.synopsis || 'Belum ada ringkasan cerita untuk drama ini.')}
+                  </p>
+                  ${
+                    (detail.synopsis || '').length > 140
+                      ? `<button type="button" class="synopsis-toggle-btn" id="toggle-synopsis-btn">Baca Selengkapnya</button>`
+                      : ''
+                  }
+                </div>
 
-            <div class="hero-cta-row">
-              <a href="/watch/${encodeURIComponent(detail.id)}/${encodeURIComponent(resumeEpNum)}" class="btn-primary" data-link>
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20"/></svg>
-                <span>${lastWatched ? `Lanjutkan Ep ${resumeEpNum}` : 'Mulai Tonton Ep 1'}</span>
-              </a>
+                <div class="hero-cta-row">
+                  <a href="/watch/${encodeURIComponent(detail.id)}/${encodeURIComponent(resumeEpNum)}" class="btn-primary" data-link>
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20"/></svg>
+                    <span>${lastWatched ? `Lanjutkan Ep ${resumeEpNum}` : 'Mulai Tonton Ep 1'}</span>
+                  </a>
 
-              <button type="button" class="btn-surface" id="detail-watchlist-btn">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="${saved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
-                </svg>
-                <span>${saved ? 'Tersimpan di Daftar Saya' : 'Simpan ke Daftar Saya'}</span>
-              </button>
+                  <button type="button" class="btn-surface" id="detail-watchlist-btn">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="${saved ? 'currentColor' : 'none'}" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"></path>
+                    </svg>
+                    <span>${saved ? 'Tersimpan di Daftar' : '+ Daftar Saya'}</span>
+                  </button>
 
-              <button type="button" class="btn-surface" id="detail-share-btn">
-                <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-                  <circle cx="18" cy="5" r="3"></circle>
-                  <circle cx="6" cy="12" r="3"></circle>
-                  <circle cx="18" cy="19" r="3"></circle>
-                  <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
-                  <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
-                </svg>
-                <span>Bagikan</span>
-              </button>
+                  <button type="button" class="btn-surface" id="detail-share-btn">
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                      <circle cx="18" cy="5" r="3"></circle>
+                      <circle cx="6" cy="12" r="3"></circle>
+                      <circle cx="18" cy="19" r="3"></circle>
+                      <line x1="8.59" y1="13.51" x2="15.42" y2="17.49"></line>
+                      <line x1="15.41" y1="6.51" x2="8.59" y2="10.49"></line>
+                    </svg>
+                    <span>Bagikan</span>
+                  </button>
+                </div>
+              </div>
             </div>
           </div>
         </div>
       </section>
 
-      <div class="container" style="margin-top:32px;">
-        <section class="content-section">
-          <div class="section-header" style="flex-wrap:wrap;">
+      <div class="container" style="margin-top:8px;">
+        <section class="detail-section-card">
+          <div class="section-header" style="flex-wrap:wrap; margin-bottom:14px;">
             <div class="section-title-group">
               <h2 class="section-title">Daftar Episode</h2>
-              <span class="section-subtitle">Total ${episodes.length} episode tersedia</span>
+              <span class="section-subtitle">Pilih episode untuk mulai memutar (${episodes.length} episode)</span>
             </div>
             ${
               ranges.length > 1
@@ -979,7 +1034,7 @@ async function renderDramaDetailView(seriesId) {
         ${
           Array.isArray(detail.recommendations) && detail.recommendations.length
             ? `
-          <section class="content-section">
+          <section class="detail-section-card">
             <div class="section-header">
               <div class="section-title-group">
                 <h2 class="section-title">Mirip dengan Ini</h2>
@@ -1554,7 +1609,9 @@ async function renderWatchView(seriesId, episodeParam) {
 // 5. DAFTAR SAYA & RIWAYAT VIEWS
 function renderSavedCollectionView({ type = 'watchlist' } = {}) {
   const isWatchlist = type === 'watchlist';
-  const items = isWatchlist ? getWatchlist() : getWatchHistory();
+  const watchlistItems = getWatchlist();
+  const historyItems = getWatchHistory();
+  const items = isWatchlist ? watchlistItems : historyItems;
 
   updateDocumentMeta({
     title: isWatchlist ? 'Daftar Tontonan Saya' : 'Riwayat Menonton',
@@ -1565,27 +1622,33 @@ function renderSavedCollectionView({ type = 'watchlist' } = {}) {
 
   mainEl.innerHTML = `
     <div class="container page-top-spacer">
-      <div class="section-header" style="flex-wrap:wrap;">
+      <div class="glass-page-banner">
         <div>
-          <h1 class="section-title">${isWatchlist ? 'Daftar Saya' : 'Riwayat Menonton'}</h1>
-          <p class="section-subtitle">
+          <h1 class="section-title">${isWatchlist ? 'Koleksi Daftar Saya' : 'Riwayat Menonton'}</h1>
+          <p class="section-subtitle" style="margin-top:4px;">
             ${
               isWatchlist
-                ? `Tersimpan di perangkat Anda (${items.length} drama). Siap diekspor ke akun kapan saja.`
-                : `Menyimpan posisi terakhir dari ${items.length} drama yang Anda tonton.`
+                ? `Tersimpan ${items.length} drama favorit di perangkat Anda.`
+                : `Menyimpan posisi menit terakhir dari ${items.length} drama yang Anda tonton.`
             }
           </p>
         </div>
 
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <a href="${isWatchlist ? '/riwayat' : '/daftar-saya'}" class="btn-surface" data-link>
-            ${isWatchlist ? 'Lihat Riwayat Menonton' : 'Lihat Daftar Saya'}
-          </a>
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+          <div class="glass-tab-switcher" role="tablist" aria-label="Pilih koleksi">
+            <a href="/daftar-saya" class="glass-tab-btn ${isWatchlist ? 'active' : ''}" data-link>
+              <span>Daftar Saya (${watchlistItems.length})</span>
+            </a>
+            <a href="/riwayat" class="glass-tab-btn ${!isWatchlist ? 'active' : ''}" data-link>
+              <span>Riwayat (${historyItems.length})</span>
+            </a>
+          </div>
+
           ${
             items.length > 0
               ? `
-            <button type="button" class="btn-surface" id="export-data-btn">Ekspor JSON</button>
-            <button type="button" class="btn-surface" id="clear-collection-btn" style="color:var(--accent-text);">Hapus Semua</button>
+            <button type="button" class="btn-surface" id="export-data-btn" style="min-height:38px; padding:0 12px; font-size:0.8rem;">Ekspor JSON</button>
+            <button type="button" class="btn-surface" id="clear-collection-btn" style="min-height:38px; padding:0 12px; font-size:0.8rem; color:var(--accent-text);">Hapus Semua</button>
           `
               : ''
           }
@@ -1600,23 +1663,28 @@ function renderSavedCollectionView({ type = 'watchlist' } = {}) {
           <p class="state-desc">
             ${
               isWatchlist
-                ? 'Simpan drama favorit Anda dengan menekan tombol "+ Daftar Saya" pada halaman beranda atau detail drama.'
-                : 'Drama dan episode yang Anda tonton akan otomatis tercatat di sini lengkap dengan menit terakhirnya.'
+                ? 'Simpan drama favorit Anda dengan menekan tombol "+ Daftar Saya" pada halaman beranda, pemutar video, atau detail drama.'
+                : 'Drama dan episode yang Anda putar akan otomatis tercatat di sini lengkap dengan menit terakhirnya.'
             }
           </p>
-          <a href="/kategori" class="btn-primary" data-link>Jelajahi Katalog Drama</a>
+          <div style="display:flex; gap:10px; justify-content:center; flex-wrap:wrap;">
+            <a href="/kategori" class="btn-primary" data-link>Jelajahi Katalog Drama</a>
+            <a href="/" class="btn-surface" data-link>Kembali ke Beranda</a>
+          </div>
         </div>
       `
           : `
-        <div class="poster-grid">
-          ${items
-            .map((item) =>
-              renderDramaCard(item, {
-                showProgress: !isWatchlist,
-                removableType: isWatchlist ? 'watchlist' : 'history'
-              })
-            )
-            .join('')}
+        <div class="detail-section-card">
+          <div class="poster-grid">
+            ${items
+              .map((item) =>
+                renderDramaCard(item, {
+                  showProgress: !isWatchlist,
+                  removableType: isWatchlist ? 'watchlist' : 'history'
+                })
+              )
+              .join('')}
+          </div>
         </div>
       `
       }
@@ -1721,43 +1789,45 @@ let searchDebounceTimer = null;
 function renderSearchHistoryBox() {
   if (!searchHistorySection) return;
   const history = getSearchHistory();
-  const popularSuggestions = ['Suami', 'Putri', 'Balas Dendam', 'Miliarder', 'Pernikahan', 'Dokter'];
+  const popularSuggestions = ['Suami', 'Putri', 'Balas Dendam', 'Miliarder', 'Pernikahan', 'Dokter', 'CEO', 'Cinta'];
 
   searchHistorySection.innerHTML = `
-    ${
-      history.length
-        ? `
-      <div style="margin-bottom:16px;">
-        <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:8px;">
-          <span class="filter-label">Riwayat Pencarian</span>
-          <button type="button" class="section-action" id="clear-search-hist-btn" style="min-height:36px;">Hapus Riwayat</button>
+    <div class="search-glass-group">
+      ${
+        history.length
+          ? `
+        <div style="margin-bottom:14px; padding-bottom:14px; border-bottom:1px solid var(--border-subtle);">
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:10px;">
+            <span class="filter-label">Riwayat Pencarian</span>
+            <button type="button" class="section-action" id="clear-search-hist-btn" style="min-height:30px;">Hapus Semua</button>
+          </div>
+          <div class="filter-row" style="flex-wrap:wrap;">
+            ${history
+              .map(
+                (q) => `
+              <div style="display:inline-flex; align-items:center; background:var(--bg-glass-subtle); border:1px solid var(--border-subtle); border-radius:999px;">
+                <button type="button" class="chip-btn" style="border:none; background:transparent; padding-right:8px;" data-search-pick="${escapeHtml(q)}">${escapeHtml(q)}</button>
+                <button type="button" class="chip-btn" style="border:none; background:transparent; padding:0 10px; color:var(--text-muted);" data-search-del="${escapeHtml(q)}" aria-label="Hapus kata kunci ${escapeHtml(q)}">&times;</button>
+              </div>
+            `
+              )
+              .join('')}
+          </div>
         </div>
+      `
+          : ''
+      }
+      <div>
+        <span class="filter-label" style="display:block; margin-bottom:10px;">Kata Kunci Populer</span>
         <div class="filter-row" style="flex-wrap:wrap;">
-          ${history
+          ${popularSuggestions
             .map(
-              (q) => `
-            <div style="display:inline-flex; align-items:center; background:var(--bg-surface); border:1px solid var(--border-subtle); border-radius:8px;">
-              <button type="button" class="chip-btn" style="border:none; background:transparent;" data-search-pick="${escapeHtml(q)}">${escapeHtml(q)}</button>
-              <button type="button" class="chip-btn" style="border:none; background:transparent; padding:0 10px;" data-search-del="${escapeHtml(q)}" aria-label="Hapus kata kunci ${escapeHtml(q)}">x</button>
-            </div>
+              (kw) => `
+            <button type="button" class="chip-btn" data-search-pick="${escapeHtml(kw)}">${escapeHtml(kw)}</button>
           `
             )
             .join('')}
         </div>
-      </div>
-    `
-        : ''
-    }
-    <div>
-      <span class="filter-label" style="display:block; margin-bottom:8px;">Kata Kunci Populer</span>
-      <div class="filter-row" style="flex-wrap:wrap;">
-        ${popularSuggestions
-          .map(
-            (kw) => `
-          <button type="button" class="chip-btn" data-search-pick="${escapeHtml(kw)}">${escapeHtml(kw)}</button>
-        `
-          )
-          .join('')}
       </div>
     </div>
   `;
