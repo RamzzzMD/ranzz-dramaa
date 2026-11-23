@@ -1,8 +1,8 @@
-const CACHE_NAME = 'ranzz-drama-shell-v4';
+const CACHE_NAME = 'ranzz-drama-shell-v5';
 const STATIC_ASSETS = [
   '/',
-  '/css/styles.css?v=4',
-  '/js/app.js?v=4',
+  '/css/styles.css?v=5',
+  '/js/app.js?v=5',
   '/js/storage.js',
   '/js/player.js?v=2',
   '/icons/icon.svg',

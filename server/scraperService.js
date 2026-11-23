@@ -2,11 +2,15 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { CONFIG } from './config.js';
 import { apiCache, dramaMetaStore, rememberDramaItems } from './cache.js';
+import { prewarmHlsStream } from './proxyRoutes.js';
 
 const nativeFetch = globalThis.fetch;
 
-// DramaWave rejects Node's default 'node' User-Agent with code 403.
-// Inject Android okhttp User-Agent transparently so freereels.js works without modification.
+// Store extra first-episode stream metadata captured from /drama/info_push_v2
+const firstEpExtraStore = new Map();
+const inflightRequests = new Map();
+
+// DramaWave rejects Node's default 'node' User-Agent and requires device: 'h5' on /anonymous/login.
 globalThis.fetch = async function patchedFetch(input, init = {}) {
   const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.href : (input?.url || '');
   const isDramaWave = urlStr.includes('free-reels.com') || urlStr.includes('mydramawave.com');
@@ -36,17 +40,35 @@ globalThis.fetch = async function patchedFetch(input, init = {}) {
         const info = json?.data?.info;
         if (info?.id) {
           const prev = dramaMetaStore.get(info.id) || {};
+          const rawTags = Array.isArray(info.content_tags)
+            ? info.content_tags
+            : Array.isArray(info.tag)
+            ? info.tag
+            : prev.tags || [];
           dramaMetaStore.set(info.id, {
             ...prev,
             id: info.id,
             title: info.name || prev.title || '',
             synopsis: info.desc || prev.synopsis || '',
+            tags: rawTags.length ? rawTags : (prev.tags || []),
+            genre: rawTags.length ? rawTags.join(', ') : (prev.genre || ''),
             episodeCount: info.episode_count ?? prev.episodeCount ?? null,
             followers: info.follow_count ?? prev.followers ?? null,
             comments: info.episode?.episode_comment_count ?? prev.comments ?? null,
             landscape: info.episode?.cover || prev.landscape || null,
             thumbnail: prev.thumbnail || info.episode?.cover || null
           });
+
+          if (info.episode?.id) {
+            firstEpExtraStore.set(info.id, {
+              episodeId: info.episode.id,
+              index: info.episode.index ?? 1,
+              duration: info.episode.duration ?? 0,
+              originalAudio: info.episode.original_audio_language || null,
+              spriteVtt: info.episode.sprite_vtt_url || null,
+              videoType: info.episode.video_type || 'free'
+            });
+          }
         }
       } catch {
         // Ignore clone parsing failures and let freereels.js handle the response.
@@ -64,7 +86,6 @@ let scraperModulePromise = import(scraperFileUrl);
 
 async function getScraperModule(forceNew = false) {
   if (forceNew) {
-    // Re-importing with a query string creates a fresh module instance with sessionState = null.
     scraperModulePromise = import(`${scraperFileUrl}?session=${Date.now()}`);
   }
   return scraperModulePromise;
@@ -135,22 +156,35 @@ export async function fetchCatalog({ page = 1, count = 20, language = CONFIG.def
     if (cached) return cached;
   }
 
-  const raw = await callWithSessionRetry((m) =>
-    m.getCatalog({ page: safePage, count: safeCount, language })
-  );
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
 
-  rememberDramaItems(raw.items || []);
-  const items = (raw.items || []).map(decorateDramaItem).filter((i) => i && i.id);
+  const promise = (async () => {
+    try {
+      const raw = await callWithSessionRetry((m) =>
+        m.getCatalog({ page: safePage, count: safeCount, language })
+      );
 
-  const result = {
-    page: raw.page,
-    count: items.length,
-    hasMore: Boolean(raw.hasMore),
-    items
-  };
+      rememberDramaItems(raw.items || []);
+      const items = (raw.items || []).map(decorateDramaItem).filter((i) => i && i.id);
 
-  apiCache.set(cacheKey, result, CONFIG.cacheTtl.catalog);
-  return result;
+      const result = {
+        page: raw.page,
+        count: items.length,
+        hasMore: Boolean(raw.hasMore),
+        items
+      };
+
+      apiCache.set(cacheKey, result, CONFIG.cacheTtl.catalog);
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightRequests.set(cacheKey, promise);
+  return promise;
 }
 
 export async function fetchSearch({ q, page = 1, count = 20, language = CONFIG.defaultLanguage } = {}) {
@@ -166,23 +200,36 @@ export async function fetchSearch({ q, page = 1, count = 20, language = CONFIG.d
   const cached = apiCache.get(cacheKey);
   if (cached) return cached;
 
-  const raw = await callWithSessionRetry((m) =>
-    m.search(query, { page: safePage, count: safeCount, language })
-  );
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
+  }
 
-  rememberDramaItems(raw.items || []);
-  const items = (raw.items || []).map(decorateDramaItem).filter((i) => i && i.id);
+  const promise = (async () => {
+    try {
+      const raw = await callWithSessionRetry((m) =>
+        m.search(query, { page: safePage, count: safeCount, language })
+      );
 
-  const result = {
-    query: raw.query,
-    page: raw.page,
-    count: items.length,
-    hasMore: Boolean(raw.hasMore),
-    items
-  };
+      rememberDramaItems(raw.items || []);
+      const items = (raw.items || []).map(decorateDramaItem).filter((i) => i && i.id);
 
-  apiCache.set(cacheKey, result, CONFIG.cacheTtl.search);
-  return result;
+      const result = {
+        query: raw.query,
+        page: raw.page,
+        count: items.length,
+        hasMore: Boolean(raw.hasMore),
+        items
+      };
+
+      apiCache.set(cacheKey, result, CONFIG.cacheTtl.search);
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightRequests.set(cacheKey, promise);
+  return promise;
 }
 
 export async function fetchCategories({ language = CONFIG.defaultLanguage } = {}) {
@@ -190,36 +237,103 @@ export async function fetchCategories({ language = CONFIG.defaultLanguage } = {}
   const cached = apiCache.get(cacheKey);
   if (cached) return cached;
 
-  const raw = await callWithSessionRetry((m) => m.getCategories({ language }));
-
-  // Extract structured genre and theme filter chips from getCategories() for the frontend.
-  const genreOptions = [];
-  const seenNames = new Set();
-
-  for (const cat of raw.items || []) {
-    for (const filterGroup of cat.filters || []) {
-      for (const opt of filterGroup.options || []) {
-        const name = String(opt.name || '').trim();
-        if (!name || name === 'Semua' || name === 'All' || seenNames.has(name.toLowerCase())) continue;
-        seenNames.add(name.toLowerCase());
-        genreOptions.push({
-          id: `${filterGroup.id}-${opt.id}`,
-          groupId: filterGroup.id,
-          optionId: opt.id,
-          name
-        });
-      }
-    }
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
   }
 
-  const result = {
-    total: raw.total,
-    items: raw.items || [],
-    genres: genreOptions
-  };
+  const promise = (async () => {
+    try {
+      const raw = await callWithSessionRetry((m) => m.getCategories({ language }));
 
-  apiCache.set(cacheKey, result, CONFIG.cacheTtl.categories);
-  return result;
+      const genreOptions = [];
+      const seenNames = new Set();
+
+      for (const cat of raw.items || []) {
+        for (const filterGroup of cat.filters || []) {
+          for (const opt of filterGroup.options || []) {
+            const name = String(opt.name || '').trim();
+            if (!name || name === 'Semua' || name === 'All' || seenNames.has(name.toLowerCase())) continue;
+            seenNames.add(name.toLowerCase());
+            genreOptions.push({
+              id: `${filterGroup.id}-${opt.id}`,
+              groupId: filterGroup.id,
+              optionId: opt.id,
+              name
+            });
+          }
+        }
+      }
+
+      const result = {
+        total: raw.total,
+        items: raw.items || [],
+        genres: genreOptions
+      };
+
+      apiCache.set(cacheKey, result, CONFIG.cacheTtl.categories);
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightRequests.set(cacheKey, promise);
+  return promise;
+}
+
+function languagePriority(langCode = '') {
+  const code = String(langCode).toLowerCase();
+  if (code.startsWith('id')) return 1;
+  if (code.startsWith('en')) return 2;
+  if (code.startsWith('ms')) return 3;
+  if (code.startsWith('zh')) return 4;
+  return 10;
+}
+
+function formatSubtitlesList(rawSubs = []) {
+  const normalized = rawSubs.map((s) => ({
+    language: s.language,
+    displayName: s.displayName || s.display_name || s.language,
+    vtt: s.vtt || null,
+    srt: s.srt || s.subtitle || null,
+    isOriginal: Boolean(s.isOriginal ?? (s.type === 'original'))
+  }));
+
+  const sortedSubs = normalized.sort((a, b) => {
+    const pa = languagePriority(a.language);
+    const pb = languagePriority(b.language);
+    if (pa !== pb) return pa - pb;
+    return String(a.displayName || '').localeCompare(String(b.displayName || ''));
+  });
+
+  let defaultAssigned = false;
+  const subtitles = sortedSubs.map((sub) => {
+    const sourceUrl = sub.vtt || sub.srt;
+    const isIdOrEn =
+      !defaultAssigned &&
+      (String(sub.language).toLowerCase().startsWith('id') ||
+        String(sub.language).toLowerCase().startsWith('en'));
+    if (isIdOrEn) defaultAssigned = true;
+
+    return {
+      language: sub.language,
+      displayName: sub.displayName || sub.language,
+      vtt: sub.vtt,
+      srt: sub.srt,
+      isOriginal: sub.isOriginal,
+      isDefault: Boolean(isIdOrEn),
+      sourceUrl: sourceUrl || null,
+      proxyUrl: sourceUrl
+        ? `/api/proxy/hls/subtitle.vtt?url=${encodeURIComponent(sourceUrl)}&format=vtt`
+        : null
+    };
+  });
+
+  if (!defaultAssigned && subtitles.length > 0) {
+    subtitles[0].isDefault = true;
+  }
+
+  return subtitles;
 }
 
 export async function fetchDramaDetail(seriesId, { language = CONFIG.defaultLanguage, refresh = false } = {}) {
@@ -234,105 +348,136 @@ export async function fetchDramaDetail(seriesId, { language = CONFIG.defaultLang
     if (cached) return cached;
   }
 
-  const detail = await callWithSessionRetry((m) => m.getDetail(id, { language }));
-
-  // If the drama wasn't seen in catalog yet (e.g. direct link), search by title to enrich cover and genre tags.
-  let meta = dramaMetaStore.get(id);
-  if ((!meta || !meta.tags || !meta.tags.length) && detail.title) {
-    try {
-      const searchHits = await callWithSessionRetry((m) =>
-        m.search(detail.title, { page: 1, count: 6, language })
-      );
-      rememberDramaItems(searchHits.items || []);
-      meta = dramaMetaStore.get(id) || meta;
-    } catch {
-      // Proceed with detail data if background enrichment fails.
-    }
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
   }
 
-  // Ensure we have a pool of catalog items for "Mirip dengan ini" recommendations.
-  if (dramaMetaStore.size < 8) {
+  const promise = (async () => {
     try {
-      await fetchCatalog({ page: 1, count: 24, language });
-    } catch {
-      // Ignore if catalog prewarm fails.
+      const detail = await callWithSessionRetry((m) => m.getDetail(id, { language }));
+      const meta = dramaMetaStore.get(id);
+
+      // Run background catalog/tag enrichment strictly non-blocking so detail returns immediately!
+      if (dramaMetaStore.size < 8) {
+        fetchCatalog({ page: 1, count: 24, language }).catch(() => {});
+      } else if ((!meta || !meta.tags || !meta.tags.length) && detail.title) {
+        callWithSessionRetry((m) => m.search(detail.title, { page: 1, count: 4, language }))
+          .then((hits) => rememberDramaItems(hits.items || []))
+          .catch(() => {});
+      }
+
+      const cover = meta?.thumbnail || detail.firstEpisode?.cover || meta?.landscape || null;
+      const landscape = meta?.landscape || detail.firstEpisode?.cover || cover || null;
+      const tags = Array.isArray(meta?.tags) ? meta.tags : [];
+      const genre = meta?.genre || tags.join(', ') || 'Drama Pendek';
+      const payIndex = detail.payIndex ?? 12;
+
+      const episodes = (detail.episodes || []).map((ep) => {
+        const isLocked = Boolean(
+          ep.isPaid || (payIndex !== null && ep.episode > payIndex && ep.price > 0)
+        );
+        return {
+          episodeId: ep.episodeId || ep.videoId,
+          videoId: ep.videoId || ep.episodeId,
+          seriesId: id,
+          episode: ep.episode ?? ep.index,
+          index: ep.index ?? ep.episode,
+          title: ep.title || `${detail.title || 'Episode'} - Ep ${ep.episode ?? ep.index}`,
+          price: ep.price ?? 0,
+          isPaid: isLocked,
+          badge: isLocked ? 'TERKUNCI' : 'GRATIS'
+        };
+      });
+
+      const allCandidates = Array.from(dramaMetaStore.values())
+        .filter((item) => item && item.id && item.id !== id && item.title);
+
+      const tagSet = new Set(tags.map((t) => t.toLowerCase()));
+      const scored = allCandidates.map((cand) => {
+        const candTags = Array.isArray(cand.tags) ? cand.tags : [];
+        let overlap = 0;
+        for (const ct of candTags) {
+          if (tagSet.has(ct.toLowerCase())) overlap += 1;
+        }
+        return { cand, overlap, followers: cand.followers || 0 };
+      });
+
+      scored.sort((a, b) => (b.overlap - a.overlap) || (b.followers - a.followers));
+      const recommendations = scored.slice(0, 8).map((s) => decorateDramaItem(s.cand));
+
+      const result = {
+        id,
+        title: detail.title || meta?.title || 'Tanpa Judul',
+        synopsis: detail.synopsis || meta?.synopsis || '',
+        thumbnail: cover,
+        landscape,
+        posterProxy: cover ? `/api/proxy/img?url=${encodeURIComponent(cover)}` : null,
+        landscapeProxy: landscape ? `/api/proxy/img?url=${encodeURIComponent(landscape)}` : null,
+        genre,
+        tags,
+        totalEpisodes: detail.totalEpisodes || episodes.length || meta?.episodeCount || 0,
+        episodeCount: detail.totalEpisodes || episodes.length || meta?.episodeCount || 0,
+        latestEpisode: detail.latestEpisode,
+        earliestEpisode: detail.earliestEpisode,
+        payIndex,
+        followers: meta?.followers ?? 0,
+        comments: meta?.comments ?? 0,
+        free: meta?.free ?? true,
+        firstEpisode: detail.firstEpisode,
+        episodes,
+        recommendations
+      };
+
+      apiCache.set(cacheKey, result, CONFIG.cacheTtl.detail);
+
+      // Fast-Path Pre-Cache for Episode 1 stream directly from detail.firstEpisode (zero unlockEpisode call needed!)
+      if (detail.firstEpisode?.id && detail.firstEpisode?.streamUrl && episodes.length > 0) {
+        const ep1 = episodes.find((e) => e.episodeId === detail.firstEpisode.id) || episodes[0];
+        const extra = firstEpExtraStore.get(id) || {};
+        const subtitles = formatSubtitlesList(detail.firstEpisode.subtitles || []);
+        const nextEp = episodes.length > 1 ? episodes[1] : null;
+        const ep1StreamKey = `stream:${language}:${id}:${ep1.episodeId}`;
+
+        if (!apiCache.get(ep1StreamKey)) {
+          const ep1StreamPayload = {
+            seriesId: id,
+            seriesTitle: result.title,
+            posterProxy: result.posterProxy,
+            landscapeProxy: result.landscapeProxy,
+            episodeId: ep1.episodeId,
+            episodeNumber: ep1.episode,
+            episodeTitle: ep1.title,
+            isPaid: ep1.isPaid,
+            badge: ep1.badge,
+            unlocked: true,
+            videoType: extra.videoType || 'free',
+            duration: extra.duration || 0,
+            url: detail.firstEpisode.streamUrl,
+            proxyUrl: `/api/proxy/hls/master.m3u8?url=${encodeURIComponent(detail.firstEpisode.streamUrl)}`,
+            subtitles,
+            audioTracks: detail.firstEpisode.audio || [],
+            originalAudio: extra.originalAudio || null,
+            spriteVtt: extra.spriteVtt || null,
+            prevEpisode: null,
+            nextEpisode: nextEp ? { episode: nextEp.episode, episodeId: nextEp.episodeId } : null,
+            totalEpisodes: episodes.length,
+            detail: result
+          };
+          apiCache.set(ep1StreamKey, ep1StreamPayload, CONFIG.cacheTtl.stream);
+
+          const defaultSub = subtitles.find((s) => s.isDefault) || subtitles[0];
+          prewarmHlsStream(detail.firstEpisode.streamUrl, defaultSub?.sourceUrl || null);
+        }
+      }
+
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
     }
-  }
+  })();
 
-  const cover = meta?.thumbnail || detail.firstEpisode?.cover || meta?.landscape || null;
-  const landscape = meta?.landscape || detail.firstEpisode?.cover || cover || null;
-  const tags = Array.isArray(meta?.tags) ? meta.tags : [];
-  const genre = meta?.genre || tags.join(', ') || 'Drama Pendek';
-  const payIndex = detail.payIndex ?? 12;
-
-  const episodes = (detail.episodes || []).map((ep) => {
-    const isLocked = Boolean(
-      ep.isPaid || (payIndex !== null && ep.episode > payIndex && ep.price > 0)
-    );
-    return {
-      episodeId: ep.episodeId || ep.videoId,
-      videoId: ep.videoId || ep.episodeId,
-      seriesId: id,
-      episode: ep.episode ?? ep.index,
-      index: ep.index ?? ep.episode,
-      title: ep.title || `${detail.title || 'Episode'} - Ep ${ep.episode ?? ep.index}`,
-      price: ep.price ?? 0,
-      isPaid: isLocked,
-      badge: isLocked ? 'TERKUNCI' : 'GRATIS'
-    };
-  });
-
-  // Compute recommendations sorted by shared tag count, then follower count.
-  const allCandidates = Array.from(dramaMetaStore.values())
-    .filter((item) => item && item.id && item.id !== id && item.title);
-
-  const tagSet = new Set(tags.map((t) => t.toLowerCase()));
-  const scored = allCandidates.map((cand) => {
-    const candTags = Array.isArray(cand.tags) ? cand.tags : [];
-    let overlap = 0;
-    for (const ct of candTags) {
-      if (tagSet.has(ct.toLowerCase())) overlap += 1;
-    }
-    return { cand, overlap, followers: cand.followers || 0 };
-  });
-
-  scored.sort((a, b) => (b.overlap - a.overlap) || (b.followers - a.followers));
-  const recommendations = scored.slice(0, 8).map((s) => decorateDramaItem(s.cand));
-
-  const result = {
-    id,
-    title: detail.title || meta?.title || 'Tanpa Judul',
-    synopsis: detail.synopsis || meta?.synopsis || '',
-    thumbnail: cover,
-    landscape,
-    posterProxy: cover ? `/api/proxy/img?url=${encodeURIComponent(cover)}` : null,
-    landscapeProxy: landscape ? `/api/proxy/img?url=${encodeURIComponent(landscape)}` : null,
-    genre,
-    tags,
-    totalEpisodes: detail.totalEpisodes || episodes.length || meta?.episodeCount || 0,
-    episodeCount: detail.totalEpisodes || episodes.length || meta?.episodeCount || 0,
-    latestEpisode: detail.latestEpisode,
-    earliestEpisode: detail.earliestEpisode,
-    payIndex,
-    followers: meta?.followers ?? 0,
-    comments: meta?.comments ?? 0,
-    free: meta?.free ?? true,
-    firstEpisode: detail.firstEpisode,
-    episodes,
-    recommendations
-  };
-
-  apiCache.set(cacheKey, result, CONFIG.cacheTtl.detail);
-  return result;
-}
-
-function languagePriority(langCode = '') {
-  const code = String(langCode).toLowerCase();
-  if (code.startsWith('id')) return 1;
-  if (code.startsWith('en')) return 2;
-  if (code.startsWith('ms')) return 3;
-  if (code.startsWith('zh')) return 4;
-  return 10;
+  inflightRequests.set(cacheKey, promise);
+  return promise;
 }
 
 export async function fetchEpisodeStream(seriesId, episodeParam, { language = CONFIG.defaultLanguage, refresh = false } = {}) {
@@ -362,78 +507,66 @@ export async function fetchEpisodeStream(seriesId, episodeParam, { language = CO
 
   if (!refresh) {
     const cached = apiCache.get(cacheKey);
-    if (cached) return cached;
+    if (cached) {
+      return { ...cached, detail };
+    }
   }
 
-  const unlocked = await callWithSessionRetry((m) =>
-    m.unlockEpisode(id, targetEpisodeId, { language })
-  );
-
-  if (!unlocked?.url) {
-    throw new Error('Gagal membuka stream video untuk episode ini.');
+  if (inflightRequests.has(cacheKey)) {
+    return inflightRequests.get(cacheKey);
   }
 
-  const sortedSubs = [...(unlocked.subtitles || [])].sort((a, b) => {
-    const pa = languagePriority(a.language);
-    const pb = languagePriority(b.language);
-    if (pa !== pb) return pa - pb;
-    return String(a.displayName || '').localeCompare(String(b.displayName || ''));
-  });
+  const promise = (async () => {
+    try {
+      const unlocked = await callWithSessionRetry((m) =>
+        m.unlockEpisode(id, targetEpisodeId, { language })
+      );
 
-  let defaultAssigned = false;
-  const subtitles = sortedSubs.map((sub) => {
-    const sourceUrl = sub.vtt || sub.srt;
-    const isIdOrEn =
-      !defaultAssigned &&
-      (String(sub.language).toLowerCase().startsWith('id') ||
-        String(sub.language).toLowerCase().startsWith('en'));
-    if (isIdOrEn) defaultAssigned = true;
+      if (!unlocked?.url) {
+        throw new Error('Gagal membuka stream video untuk episode ini.');
+      }
 
-    return {
-      language: sub.language,
-      displayName: sub.displayName || sub.language,
-      vtt: sub.vtt,
-      srt: sub.srt,
-      isOriginal: Boolean(sub.isOriginal),
-      isDefault: Boolean(isIdOrEn),
-      proxyUrl: sourceUrl
-        ? `/api/proxy/hls/subtitle.vtt?url=${encodeURIComponent(sourceUrl)}&format=vtt`
-        : null
-    };
-  });
+      const subtitles = formatSubtitlesList(unlocked.subtitles || []);
+      const currentIdx = episodes.findIndex((e) => e.episodeId === targetEpisodeId);
+      const prevEpisode = currentIdx > 0 ? episodes[currentIdx - 1] : null;
+      const nextEpisode = currentIdx >= 0 && currentIdx < episodes.length - 1 ? episodes[currentIdx + 1] : null;
 
-  if (!defaultAssigned && subtitles.length > 0) {
-    subtitles[0].isDefault = true;
-  }
+      const result = {
+        seriesId: id,
+        seriesTitle: detail.title,
+        posterProxy: detail.posterProxy,
+        landscapeProxy: detail.landscapeProxy,
+        episodeId: targetEpisodeId,
+        episodeNumber: matchedEp.episode,
+        episodeTitle: matchedEp.title,
+        isPaid: matchedEp.isPaid,
+        badge: matchedEp.badge,
+        unlocked: Boolean(unlocked.unlocked),
+        videoType: unlocked.videoType,
+        duration: unlocked.duration || 0,
+        url: unlocked.url,
+        proxyUrl: `/api/proxy/hls/master.m3u8?url=${encodeURIComponent(unlocked.url)}`,
+        subtitles,
+        audioTracks: unlocked.audioTracks || [],
+        originalAudio: unlocked.originalAudio || null,
+        spriteVtt: unlocked.spriteVtt || null,
+        prevEpisode: prevEpisode ? { episode: prevEpisode.episode, episodeId: prevEpisode.episodeId } : null,
+        nextEpisode: nextEpisode ? { episode: nextEpisode.episode, episodeId: nextEpisode.episodeId } : null,
+        totalEpisodes: episodes.length,
+        detail
+      };
 
-  const currentIdx = episodes.findIndex((e) => e.episodeId === targetEpisodeId);
-  const prevEpisode = currentIdx > 0 ? episodes[currentIdx - 1] : null;
-  const nextEpisode = currentIdx >= 0 && currentIdx < episodes.length - 1 ? episodes[currentIdx + 1] : null;
+      apiCache.set(cacheKey, result, CONFIG.cacheTtl.stream);
 
-  const result = {
-    seriesId: id,
-    seriesTitle: detail.title,
-    posterProxy: detail.posterProxy,
-    landscapeProxy: detail.landscapeProxy,
-    episodeId: targetEpisodeId,
-    episodeNumber: matchedEp.episode,
-    episodeTitle: matchedEp.title,
-    isPaid: matchedEp.isPaid,
-    badge: matchedEp.badge,
-    unlocked: Boolean(unlocked.unlocked),
-    videoType: unlocked.videoType,
-    duration: unlocked.duration || 0,
-    url: unlocked.url,
-    proxyUrl: `/api/proxy/hls/master.m3u8?url=${encodeURIComponent(unlocked.url)}`,
-    subtitles,
-    audioTracks: unlocked.audioTracks || [],
-    originalAudio: unlocked.originalAudio || null,
-    spriteVtt: unlocked.spriteVtt || null,
-    prevEpisode: prevEpisode ? { episode: prevEpisode.episode, episodeId: prevEpisode.episodeId } : null,
-    nextEpisode: nextEpisode ? { episode: nextEpisode.episode, episodeId: nextEpisode.episodeId } : null,
-    totalEpisodes: episodes.length
-  };
+      const defaultSub = subtitles.find((s) => s.isDefault) || subtitles[0];
+      prewarmHlsStream(unlocked.url, defaultSub?.sourceUrl || null);
 
-  apiCache.set(cacheKey, result, CONFIG.cacheTtl.stream);
-  return result;
+      return result;
+    } finally {
+      inflightRequests.delete(cacheKey);
+    }
+  })();
+
+  inflightRequests.set(cacheKey, promise);
+  return promise;
 }

@@ -1,7 +1,12 @@
 import { Router } from 'express';
 import { Readable } from 'node:stream';
+import { MemoryCache } from './cache.js';
 
 const router = Router();
+
+// In-memory cache for rewritten VOD HLS playlists (.m3u8) and converted WebVTT subtitles (.vtt)
+const hlsTextCache = new MemoryCache(400);
+const inflightHlsText = new Map();
 
 function isSafeExternalUrl(rawUrl) {
   if (!rawUrl || typeof rawUrl !== 'string') return null;
@@ -9,7 +14,6 @@ function isSafeExternalUrl(rawUrl) {
     const parsed = new URL(rawUrl);
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') return null;
     const host = parsed.hostname.toLowerCase();
-    // Block loopback and private network addresses to prevent SSRF.
     if (
       host === 'localhost' ||
       host === '127.0.0.1' ||
@@ -56,7 +60,6 @@ export function rewriteM3u8Playlist(playlistText, baseUrl) {
         audioDefaultAssigned = true;
       }
 
-      // Rewrite URI="..." inside #EXT-X-MEDIA, #EXT-X-MAP, #EXT-X-KEY, and #EXT-X-I-FRAME-STREAM-INF tags.
       return updatedLine.replace(/URI="([^"]+)"/g, (_, rawUri) => {
         try {
           const absUrl = new URL(rawUri, baseUrl).href;
@@ -88,10 +91,163 @@ function convertSrtToVtt(text) {
   return `WEBVTT\n\n${converted}\n`;
 }
 
+async function fetchAndCacheM3u8(urlHref) {
+  const cacheKey = `m3u8:${urlHref}`;
+  const cached = hlsTextCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (inflightHlsText.has(cacheKey)) {
+    return inflightHlsText.get(cacheKey);
+  }
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const upstream = await fetch(urlHref, {
+        method: 'GET',
+        headers: { 'User-Agent': 'okhttp/4.12.0', Accept: '*/*' },
+        signal: controller.signal
+      });
+      if (!upstream.ok) {
+        throw new Error(`HTTP ${upstream.status}`);
+      }
+      const rawText = await upstream.text();
+      const rewritten = rewriteM3u8Playlist(rawText, urlHref);
+      const result = { rawText, rewritten };
+      hlsTextCache.set(cacheKey, result, 180 * 1000);
+      return result;
+    } finally {
+      clearTimeout(timeout);
+      inflightHlsText.delete(cacheKey);
+    }
+  })();
+
+  inflightHlsText.set(cacheKey, promise);
+  return promise;
+}
+
+async function fetchAndCacheVtt(urlHref) {
+  const cacheKey = `vtt:${urlHref}`;
+  const cached = hlsTextCache.get(cacheKey);
+  if (cached) return cached;
+
+  if (inflightHlsText.has(cacheKey)) {
+    return inflightHlsText.get(cacheKey);
+  }
+
+  const promise = (async () => {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 12000);
+    try {
+      const upstream = await fetch(urlHref, {
+        method: 'GET',
+        headers: { 'User-Agent': 'okhttp/4.12.0', Accept: '*/*' },
+        signal: controller.signal
+      });
+      if (!upstream.ok) {
+        throw new Error(`HTTP ${upstream.status}`);
+      }
+      const rawSub = await upstream.text();
+      const vttText = convertSrtToVtt(rawSub);
+      hlsTextCache.set(cacheKey, vttText, 600 * 1000);
+      return vttText;
+    } finally {
+      clearTimeout(timeout);
+      inflightHlsText.delete(cacheKey);
+    }
+  })();
+
+  inflightHlsText.set(cacheKey, promise);
+  return promise;
+}
+
+// Background pre-warmer: fetches master playlist, primary video/audio child playlists, and default subtitle into RAM
+export function prewarmHlsStream(masterUrl, defaultSubUrl = null) {
+  const validMaster = isSafeExternalUrl(masterUrl);
+  if (validMaster) {
+    fetchAndCacheM3u8(validMaster.href)
+      .then(({ rawText }) => {
+        const lines = String(rawText || '').split(/\r?\n/);
+        const childUrls = [];
+
+        // Find primary audio playlist URI
+        for (const line of lines) {
+          if (line.startsWith('#EXT-X-MEDIA:TYPE=AUDIO')) {
+            const match = line.match(/URI="([^"]+)"/);
+            if (match?.[1]) {
+              try {
+                childUrls.push(new URL(match[1], validMaster.href).href);
+                break;
+              } catch {}
+            }
+          }
+        }
+
+        // Find first variant video playlist URI
+        for (const line of lines) {
+          const trimmed = line.trim();
+          if (trimmed && !trimmed.startsWith('#')) {
+            try {
+              childUrls.push(new URL(trimmed, validMaster.href).href);
+              break;
+            } catch {}
+          }
+        }
+
+        for (const childHref of childUrls) {
+          const safeChild = isSafeExternalUrl(childHref);
+          if (safeChild && safeChild.pathname.toLowerCase().endsWith('.m3u8')) {
+            fetchAndCacheM3u8(safeChild.href).catch(() => {});
+          }
+        }
+      })
+      .catch(() => {});
+  }
+
+  const validSub = isSafeExternalUrl(defaultSubUrl);
+  if (validSub) {
+    fetchAndCacheVtt(validSub.href).catch(() => {});
+  }
+}
+
 router.get(['/hls', '/hls/:filename'], async (req, res) => {
   const targetUrl = isSafeExternalUrl(req.query.url);
   if (!targetUrl) {
     return res.status(400).json({ error: 'Parameter URL stream tidak valid.' });
+  }
+
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
+
+  const pathname = targetUrl.pathname.toLowerCase();
+  const formatParam = String(req.query.format || '').toLowerCase();
+
+  const isSubtitle =
+    formatParam === 'vtt' ||
+    pathname.endsWith('.vtt') ||
+    pathname.endsWith('.srt');
+
+  if (isSubtitle) {
+    try {
+      const vttText = await fetchAndCacheVtt(targetUrl.href);
+      res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=3600');
+      return res.status(200).send(vttText);
+    } catch {
+      return res.status(502).json({ error: 'Gagal memuat subtitle.' });
+    }
+  }
+
+  if (pathname.endsWith('.m3u8')) {
+    try {
+      const { rewritten } = await fetchAndCacheM3u8(targetUrl.href);
+      res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
+      res.setHeader('Cache-Control', 'public, max-age=120');
+      return res.status(200).send(rewritten);
+    } catch {
+      return res.status(502).json({ error: 'Gagal memuat playlist HLS.' });
+    }
   }
 
   const controller = new AbortController();
@@ -121,38 +277,13 @@ router.get(['/hls', '/hls/:filename'], async (req, res) => {
       });
     }
 
-    res.setHeader('Access-Control-Allow-Origin', '*');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, HEAD, OPTIONS');
-
     const contentType = (upstream.headers.get('content-type') || '').toLowerCase();
-    const pathname = targetUrl.pathname.toLowerCase();
-    const formatParam = String(req.query.format || '').toLowerCase();
 
-    const isSubtitle =
-      formatParam === 'vtt' ||
-      pathname.endsWith('.vtt') ||
-      pathname.endsWith('.srt') ||
-      contentType.includes('text/vtt') ||
-      contentType.includes('application/x-subrip');
-
-    if (isSubtitle) {
-      const rawSub = await upstream.text();
-      const vttText = convertSrtToVtt(rawSub);
-      res.setHeader('Content-Type', 'text/vtt; charset=utf-8');
-      res.setHeader('Cache-Control', 'public, max-age=3600');
-      return res.status(200).send(vttText);
-    }
-
-    const isM3u8 =
-      pathname.endsWith('.m3u8') ||
-      contentType.includes('mpegurl') ||
-      contentType.includes('vnd.apple.mpegurl');
-
-    if (isM3u8) {
+    if (contentType.includes('mpegurl') || contentType.includes('vnd.apple.mpegurl')) {
       const playlistText = await upstream.text();
       const rewritten = rewriteM3u8Playlist(playlistText, targetUrl.href);
       res.setHeader('Content-Type', 'application/vnd.apple.mpegurl; charset=utf-8');
-      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('Cache-Control', 'public, max-age=120');
       return res.status(200).send(rewritten);
     }
 
@@ -166,7 +297,7 @@ router.get(['/hls', '/hls/:filename'], async (req, res) => {
 
     res.status(upstream.status);
     res.setHeader('Content-Type', segContentType);
-    res.setHeader('Cache-Control', 'public, max-age=3600');
+    res.setHeader('Cache-Control', 'public, max-age=3600, immutable');
 
     const contentLength = upstream.headers.get('content-length');
     if (contentLength) res.setHeader('Content-Length', contentLength);

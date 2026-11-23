@@ -34,6 +34,48 @@ let infiniteObserver = null;
 let catalogPool = [];
 let categoriesData = null;
 
+const clientDetailCache = new Map();
+const clientStreamCache = new Map();
+
+async function getDramaDetailCached(seriesId, forceRefresh = false) {
+  const key = String(seriesId);
+  if (!forceRefresh && clientDetailCache.has(key)) {
+    return clientDetailCache.get(key);
+  }
+  const promise = fetch(`/api/drama/${encodeURIComponent(key)}`).then(async (r) => {
+    const json = await r.json();
+    if (!r.ok || json.error) {
+      clientDetailCache.delete(key);
+      throw new Error(json.error || 'Drama tidak ditemukan.');
+    }
+    return json;
+  });
+  clientDetailCache.set(key, promise);
+  return promise;
+}
+
+async function getStreamDataCached(seriesId, episodeParam, forceRefresh = false) {
+  const key = `${seriesId}:${episodeParam}`;
+  if (!forceRefresh && clientStreamCache.has(key)) {
+    return clientStreamCache.get(key);
+  }
+  const promise = fetch(
+    `/api/stream/${encodeURIComponent(seriesId)}/${encodeURIComponent(episodeParam)}${forceRefresh ? '?refresh=1' : ''}`
+  ).then(async (r) => {
+    const json = await r.json();
+    if (!r.ok || json.error) {
+      clientStreamCache.delete(key);
+      throw new Error(json.error || 'Gagal memuat stream episode.');
+    }
+    if (json.detail && json.detail.id) {
+      clientDetailCache.set(String(json.detail.id), Promise.resolve(json.detail));
+    }
+    return json;
+  });
+  clientStreamCache.set(key, promise);
+  return promise;
+}
+
 function escapeHtml(str = '') {
   return String(str)
     .replace(/&/g, '&amp;')
@@ -885,18 +927,86 @@ async function renderCategoriesView({ isTerbaru = false } = {}) {
 
 // 3. DRAMA DETAIL VIEW (/drama/:id)
 async function renderDramaDetailView(seriesId) {
-  mainEl.innerHTML = `
-    <div class="container page-top-spacer">
-      ${renderSkeletonGrid(6)}
-    </div>
-  `;
+  const previewItem =
+    catalogPool.find((i) => i.id === seriesId) ||
+    getWatchlist().find((i) => i.id === seriesId) ||
+    getWatchHistory().find((i) => i.id === seriesId) ||
+    null;
+
+  if (previewItem) {
+    const pPoster = previewItem.posterProxy || '/icons/icon.svg';
+    const pBackdrop = previewItem.landscapeProxy || pPoster;
+    const pSaved = isInWatchlist(seriesId);
+    const pLast = getSeriesLastWatched(seriesId);
+    const pResumeEp = pLast?.lastEpisodeNumber || 1;
+    mainEl.innerHTML = `
+      <section class="detail-hero">
+        <img src="${escapeHtml(pBackdrop)}" alt="" class="detail-backdrop" aria-hidden="true">
+        <div class="container">
+          <div class="detail-glass-card">
+            <div class="detail-grid">
+              <div class="detail-poster-wrap">
+                <img src="${escapeHtml(pPoster)}" alt="${escapeHtml(previewItem.title)}" class="poster-img">
+              </div>
+              <div style="min-width:0;">
+                <h1 class="detail-title">${escapeHtml(previewItem.title)}</h1>
+                <div class="detail-stat-grid">
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Total Episode</span>
+                    <span class="detail-stat-val">${previewItem.episodeCount || '...'} Ep</span>
+                  </div>
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Pengikut</span>
+                    <span class="detail-stat-val">${previewItem.followers ? formatNumber(previewItem.followers) : 'Populer'}</span>
+                  </div>
+                  <div class="detail-stat-box">
+                    <span class="detail-stat-label">Akses Gratis</span>
+                    <span class="detail-stat-val" style="color:var(--badge-free-text);">Tersedia</span>
+                  </div>
+                </div>
+                <div class="detail-tags">
+                  ${(previewItem.tags || [])
+                    .map((t) => `<a href="/kategori?genre=${encodeURIComponent(t)}" class="tag-pill" data-link>${escapeHtml(t)}</a>`)
+                    .join('')}
+                </div>
+                <div class="detail-synopsis-box">
+                  <p class="detail-synopsis collapsed">${escapeHtml(previewItem.synopsis || 'Memuat ringkasan cerita...')}</p>
+                </div>
+                <div class="hero-cta-row">
+                  <a href="/watch/${encodeURIComponent(seriesId)}/${encodeURIComponent(pResumeEp)}" class="btn-primary" data-link>
+                    <svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" aria-hidden="true"><polygon points="6,4 20,12 6,20"/></svg>
+                    <span>${pLast ? `Lanjutkan Ep ${pResumeEp}` : 'Mulai Tonton Ep 1'}</span>
+                  </a>
+                  <button type="button" class="btn-surface">
+                    <span>${pSaved ? 'Tersimpan di Daftar' : '+ Daftar Saya'}</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+      <div class="container" style="margin-top:8px;">
+        <section class="detail-section-card">
+          <div class="section-header">
+            <h2 class="section-title">Memuat Daftar Episode...</h2>
+          </div>
+          <div class="Episode-grid">
+            ${Array.from({ length: 12 }).map(() => `<div class="skeleton" style="height:56px;"></div>`).join('')}
+          </div>
+        </section>
+      </div>
+    `;
+  } else {
+    mainEl.innerHTML = `
+      <div class="container page-top-spacer">
+        ${renderSkeletonGrid(6)}
+      </div>
+    `;
+  }
 
   try {
-    const res = await fetch(`/api/drama/${encodeURIComponent(seriesId)}`);
-    const detail = await res.json();
-    if (!res.ok || detail.error) {
-      throw new Error(detail.error || 'Drama tidak ditemukan.');
-    }
+    const detail = await getDramaDetailCached(seriesId, false);
 
     updateDocumentMeta({
       title: detail.title,
@@ -1164,24 +1274,20 @@ async function renderWatchView(seriesId, episodeParam) {
     </div>
   `;
 
-  const fetchStreamData = async (refresh = false) => {
-    const res = await fetch(
-      `/api/stream/${encodeURIComponent(seriesId)}/${encodeURIComponent(episodeParam)}${refresh ? '?refresh=1' : ''}`
-    );
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      throw new Error(data.error || 'Gagal memuat stream episode.');
-    }
-    return data;
-  };
+  const fetchStreamData = (refresh = false) => getStreamDataCached(seriesId, episodeParam, refresh);
 
   try {
-    const [detailRes, streamData] = await Promise.all([
-      fetch(`/api/drama/${encodeURIComponent(seriesId)}`).then((r) => r.json()),
-      fetchStreamData(false)
-    ]);
+    const streamData = await fetchStreamData(false);
+    const detailRes = streamData.detail || (await getDramaDetailCached(seriesId, false));
 
     if (detailRes.error) throw new Error(detailRes.error);
+
+    // Pre-fetch next episode stream in the background after 2s so "Lanjut Ep" is instant
+    if (streamData.nextEpisode?.episode) {
+      setTimeout(() => {
+        getStreamDataCached(seriesId, streamData.nextEpisode.episode, false).catch(() => {});
+      }, 2000);
+    }
 
     updateDocumentMeta({
       title: `Nonton ${detailRes.title} Episode ${streamData.episodeNumber}`,
@@ -1502,13 +1608,6 @@ async function renderWatchView(seriesId, episodeParam) {
           if (sidebarTabs) sidebarTabs.innerHTML = renderRangeChipsHtml();
           if (sheetTabs) sheetTabs.innerHTML = renderRangeChipsHtml();
           const html = buildEpSliceHtml(activeRangeKey);
-          if (sidebarGrid) sidebarGrid.innerHTML = html;
-          if (sheetGrid) sheetGrid.innerHTML = html;
-          bindWatchRangeTabs();
-        });
-      });
-    };
-    bindWatchRangeTabs();
 
     // Auto-scroll active episode into view inside the desktop sidebar
     requestAnimationFrame(() => {
@@ -2006,6 +2105,19 @@ function initGlobalListeners() {
       }
     }
   });
+
+  // Prefetch drama detail on hover or touchstart so clicking a card opens Detail & Ep 1 instantaneously
+  const prefetchLinkTarget = (e) => {
+    const link = e.target.closest('a[data-link]');
+    if (!link) return;
+    const href = link.getAttribute('href') || '';
+    const dMatch = href.match(/^\/drama\/([a-zA-Z0-9_-]+)$/);
+    if (dMatch) {
+      getDramaDetailCached(decodeURIComponent(dMatch[1]), false).catch(() => {});
+    }
+  };
+  document.addEventListener('pointerover', prefetchLinkTarget, { passive: true });
+  document.addEventListener('touchstart', prefetchLinkTarget, { passive: true });
 
   // Intercept internal links for SPA navigation
   document.addEventListener('click', (e) => {
