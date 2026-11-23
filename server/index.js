@@ -175,7 +175,15 @@ export function startServer(port = CONFIG.port, host = CONFIG.host) {
 }
 
 const isSelfTest = process.argv.some((arg) => String(arg).includes('selftest.js'));
-if (!isSelfTest) {
+const isPteroPm2Mode =
+  !isSelfTest &&
+  process.env.pm_id === undefined &&
+  fs.existsSync('/home/container/.use-pm2');
+
+if (isPteroPm2Mode) {
+  console.log('[RANZZ DRAMA] Mode PM2 aktif: port dialihkan sepenuhnya ke proses PM2.');
+  setInterval(() => {}, 3600000);
+} else if (!isSelfTest) {
   startServer();
 }
 
