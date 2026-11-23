@@ -1608,6 +1608,13 @@ async function renderWatchView(seriesId, episodeParam) {
           if (sidebarTabs) sidebarTabs.innerHTML = renderRangeChipsHtml();
           if (sheetTabs) sheetTabs.innerHTML = renderRangeChipsHtml();
           const html = buildEpSliceHtml(activeRangeKey);
+          if (sidebarGrid) sidebarGrid.innerHTML = html;
+          if (sheetGrid) sheetGrid.innerHTML = html;
+          bindWatchRangeTabs();
+        });
+      });
+    };
+    bindWatchRangeTabs();
 
     // Auto-scroll active episode into view inside the desktop sidebar
     requestAnimationFrame(() => {
