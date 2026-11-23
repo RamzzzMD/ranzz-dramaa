@@ -22,7 +22,7 @@ if (fs.existsSync(envPath)) {
 }
 
 export const CONFIG = {
-  port: Number(process.env.PORT) || 3000,
+  port: Number(process.env.SERVER_PORT || process.env.PORT) || 3000,
   host: process.env.HOST || '0.0.0.0',
   defaultLanguage: process.env.DEFAULT_LANGUAGE || 'id-ID',
   cacheTtl: {
