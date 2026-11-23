@@ -156,10 +156,21 @@ app.use((err, req, res, _next) => {
 
 export function startServer(port = CONFIG.port, host = CONFIG.host) {
   return new Promise((resolve) => {
-    const server = app.listen(port, host, () => {
-      console.log(`[RANZZ DRAMA] Server aktif di http://${host}:${port}`);
-      resolve(server);
-    });
+    const listenOn = (targetHost) => {
+      const server = app.listen(port, targetHost, () => {
+        console.log(`[RANZZ DRAMA] Server aktif di http://${targetHost}:${port}`);
+        resolve(server);
+      });
+      server.on('error', (err) => {
+        if (err.code === 'EADDRNOTAVAIL' && targetHost !== '0.0.0.0') {
+          console.warn(`[RANZZ DRAMA] Host ${targetHost} tidak tersedia di kontainer, beralih ke 0.0.0.0:${port}...`);
+          listenOn('0.0.0.0');
+        } else {
+          console.error('[RANZZ DRAMA] Gagal menjalankan server:', err.message);
+        }
+      });
+    };
+    listenOn(host);
   });
 }
 
